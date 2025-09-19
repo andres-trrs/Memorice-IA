@@ -9,6 +9,9 @@ class Memorygame:
         self.master.title("Memorice")
         self.master.geometry("900x700")
         self.master.configure(bg="#1a1a2e")
+        #Timer
+        self.timer_running = False
+        self.start_time = None
 
         self.custom_font = ("Helvetica", 14, "bold") #defineción de fuente personalizada
 
@@ -135,6 +138,12 @@ class Memorygame:
     def on_card_click(self, idx):
         if self.input_locked or idx in self.matched_cards or idx in self.revealed or len(self.revealed) >=2:
             return
+
+        if not self.timer_running:
+            self.start_time = time.time()
+            self.timer_running = True
+            self.tick_timer()
+
         self.reveal_card(idx)
         self.revealed.append(idx)
         if len(self.revealed) == 2:
@@ -143,6 +152,14 @@ class Memorygame:
             self.moves_label.config(text=f"Movimientos: {self.moves}")
             after_id = self.master.after(500, self.check_match)
             self.pending_after.append(after_id)
+
+    def tick_timer(self):
+        if not self.timer_running or self.start_time is None:
+            return
+        elapsed = int(time.time() - self.start_time)
+        mm, ss = divmod(elapsed, 60)
+        self.time_label.config(text=f"Tiempo: {mm:02d}:{ss:02d}")
+        self.master.after(1000, self.tick_timer)
 
     # Método para revelar las cartas
     def reveal_card(self, idx):
@@ -173,7 +190,30 @@ class Memorygame:
             self.hide_card(idx2)
         del self.revealed[:2]
         self.input_locked = False
+        self.check_win()
 
+    def check_win(self):
+        total_pairs = len(self.symbols) // 2
+        if self.matched_pairs == total_pairs:
+            self.timer_running = False
+            self.show_game_over()
+
+    def show_game_over(self):
+        overlay = tk.Toplevel(self.master)
+        overlay.title("Juego Terminado!")
+        overlay.configure(bg=self.colors['gameover_bg'])
+        overlay.transient(self.master)
+        overlay.grab_set()
+
+        if self.start_time is not None:
+            elapsed = int(time.time() - self.start_time)
+            mm, ss = divmod(elapsed, 60)
+            final_time = f"{mm:02d}:{ss:02d}"
+        else:
+            final_time = "00:00"
+
+        tk.Label(overlay, text="Juego Terminado!", font =("Helvetica", 20, "bold"), bg=self.colors['gameover_bg'], fg=self.colors['text']).pack(padx=20, pady=(20, 10))
+        tk.Label(overlay, text=f"Movimientos: {self.moves}\nTiempo: {final_time}", font=self.custom_font, bg=self.colors['gameover_bg'], fg=self.colors['text']).pack(pady=5)
 
     # Método para iniciar un nuevo juego
     def new_game(self):
