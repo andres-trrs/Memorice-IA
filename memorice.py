@@ -12,6 +12,11 @@ class Memorygame:
         #Timer
         self.timer_running = False
         self.start_time = None
+        #Estado y configutación de la IA
+        self.ai_mode = "Manual"
+        self.ai_running = False
+        self.ai_job = None
+        self.knowledge = {}
 
         self.custom_font = ("Helvetica", 14, "bold") #defineción de fuente personalizada
 
@@ -74,24 +79,17 @@ class Memorygame:
         self.IA_label = tk.Label(self.sidebar, text="Seleccion de IA", font=self.custom_font, bg=self.colors['sidebar_bg'], fg=self.colors['text'])
         self.IA_label.pack(pady=(0, 5))
 
-        '''self.style = ttk.Style()
-        self.style.theme_create("modern", parent="alt", settings={
-            "TCombobox": {
-                "configure": {
-                    "selectbackground": self.colors['combobox_bg'],
-                    "fieldbackground": self.colors['combobox_bg'],    #COMBOBOX SELECTOR DE IA
-                    "background": self.colors['button_bg'],
-                    "foreground": self.colors['combobox_fg'],
-                }
-            }
-        })
+        #Combobox para seleccionar IA
+        self.ai_var = tk.StringVar(value=self.ai_mode)
+        self.ai_combo = ttk.Combobox(self.sidebar, textvariable=self.ai_var, state="readonly", values=["Manual", "Auto (Memoria)", "Auto (Greedy-BFS)", "Auto (Random)"], font = self.custom_font, width=18)
+        self.ai_combo.pack(pady=(0, 10))
+        self.ai_combo.bind("<<ComboboxSelected>>", self.on_ai_change)
 
-        self.style.theme_use("modern")
-        
-        self.difficulty_combobox = ttk.Combobox(self.sidebar, values=list(self.difficulty_levels.keys()), state="readonly", font=self.custom_font, width=10)
-
-        self.difficulty_combobox.set(self.current_difficulty)
-        self.difficulty_combobox.pack(pady=(0, 20))'''
+        #Boton para iniciar/detener la IA
+        self.ai_btn = tk.Button(self.sidebar, text="Iniciar IA", font=self.custom_font, bg=self.colors["button_bg"], fg=self.colors["button_fg"], relief=tk.FLAT, command=self.toggle_ai)
+        self.ai_btn.pack(pady=(0, 20))
+        self.ai_btn.bind("<Enter>", lambda e: e.widget.config(bg="#377038"))
+        self.ai_btn.bind("<Leave>", lambda e: e.widget.config(bg=self.colors['button_bg']))
 
         #numero de movimientos y tiempo
         self.moves_label = tk.Label(self.sidebar, text = "Movimientos: 0", font=self.custom_font, bg = self.colors['sidebar_bg'], fg=self.colors['text'])
@@ -150,7 +148,9 @@ class Memorygame:
             self.input_locked = True
             self.moves += 1
             self.moves_label.config(text=f"Movimientos: {self.moves}")
-            after_id = self.master.after(500, self.check_match)
+            # Delay más corto para la IA, normal para manual
+            delay = 50 if self.ai_running else 500 #ERA 200 ANTES
+            after_id = self.master.after(delay, self.check_match)
             self.pending_after.append(after_id)
 
     def tick_timer(self):
@@ -167,6 +167,10 @@ class Memorygame:
         card.itemconfig('front', state='normal')
         card.itemconfig('symbol', state='normal')
         card.tag_raise('symbol')
+        #Actualizar memoria de la IA
+        sym = self.symbols[idx]
+        self.knowledge.setdefault(sym, set()).add(idx)
+
 
     # Método para ocultar las cartas
     def hide_card(self, idx):
@@ -178,7 +182,7 @@ class Memorygame:
         if len(self.revealed) < 2:
             self.input_locked = False
             return
-        idx1, idx2 = self.revealed #Obtiene los índices de las cartas reveladas
+        idx1, idx2 = self.revealed[:2] #Obtiene los índices de las cartas reveladas
         if self.symbols[idx1] == self.symbols[idx2]:
             self.matched_pairs += 1
             self.matched_cards.extend([idx1, idx2])
@@ -225,20 +229,122 @@ class Memorygame:
                 pass
         self.pending_after.clear()
 
+        self.stop_ai()
+        self.knowledge.clear()
         self.game_solved = False
         self.revealed.clear()
         self.matched_cards.clear()
         self.matched_pairs = 0
         self.moves = 0
         self.start_time = None
+        self.timer_running = False
         self.moves_label.config(text="Movimientos: 0")
         self.time_label.config(text="Tiempo: 00:00")
         self.cards_frame.destroy()
         self.create_game_grid()
 
+    # Métodos para controlar la IA
+    def on_ai_change(self, event=None):
+        self.ai_mode = self.ai_var.get()
+        if self.ai_mode == "Manual":
+            self.stop_ai()
+
+    # Método para iniciar/detener la IA
+    def toggle_ai(self):
+        if self.ai_running:
+            self.stop_ai()
+        else:
+            if self.ai_mode == "Manual":
+                self.ai_var.set("Auto (Memoria)")
+                self.ai_mode = "Auto (Memoria)"
+            self.start_ai()
+
+    def start_ai(self):
+        if self.ai_running:
+            return
+        self.ai_running = True
+        self.ai_btn.config(text="Detener IA")
+        if not self.timer_running:
+            self.start_time = time.time()
+            self.timer_running = True
+            self.tick_timer()
+        self.ai_tick()
+
+
+    def stop_ai(self):
+        self.ai_running = False
+        self.ai_btn.config(text="Iniciar IA")
+        if self.ai_job is not None:
+            try:
+                self.master.after_cancel(self.ai_job)
+            except Exception:
+                pass
+            self.ai_job = None
+
+    def ai_tick(self):
+        #Si el juego ya se resolvió, detiene la IA
+        if self.matched_pairs == len(self.symbols) // 2:
+            self.stop_ai()
+            return
+        #si la UI está bloqueada, espera
+        if self.input_locked:
+            self.ai_job = self.master.after(5, self.ai_tick) #ERA 50 ANTES
+            return
+        
+        #Solo funciona con Auto (Memoria), las demás opciones detienen la IA
+        if self.ai_mode == "Auto (Memoria)":
+            self.ai_step_memory()
+        else:
+            # Si se selecciona otra IA que no está implementada, detiene la IA
+            self.stop_ai()
+            return
+        
+        # Delay más corto para la IA
+        self.ai_job = self.master.after(100, self.ai_tick)
+
+    def ai_step_memory(self):
+        # paso 1: hay alguna pareja conocida?
+        for sym, idxs in self.knowledge.items():
+            cand = [i for i in idxs if i not in self.matched_cards and i not in self.revealed]
+            if len (cand) >= 2:
+                a, b = cand[:2]
+                self.ai_play_pair(a,b)
+                return
+        #paso 2: si no hay parejas conocidas revela una carta desconocida
+        pool_unseen = [i for i in range(len(self.symbols)) if i not in self.matched_cards and i not in self.revealed and all(i not in s for s in self.knowledge.values())]
+        if not pool_unseen:
+            pool_unseen = [i for i in range(len(self.symbols)) if i not in self.matched_cards and i not in self.revealed]
+        if not pool_unseen:
+            return
+        a = random.choice(pool_unseen)
+        self.safe_click(a)
+
+        #paso 3: si hay una carta revelada, intenta emparejarla
+        sym = self.symbols[a]
+        known = [i for i in self.knowledge.get(sym, set()) if i != a and i not in self.matched_cards and i not in self.revealed]
+        if known:
+            b = known[0]
+        else:
+            #elige una carta desconocida
+            pool2 = [i for i in range(len(self.symbols)) if i != a and i not in self.matched_cards and i not in self.revealed and all(i not in s for s in self.knowledge.values())]
+            if not pool2:
+                pool2 = [i for i in range(len(self.symbols)) if i != a and i not in self.matched_cards and i not in self.revealed]
+            if not pool2:
+                return
+            b = random.choice(pool2)
+        #segundo click con delay más corto para IA
+        self.ai_job = self.master.after(50, lambda: self.safe_click(b))
+
+    def ai_play_pair(self, a, b):
+        self.safe_click(a)
+        # Delay más corto entre clicks para la IA
+        self.ai_job = self.master.after(50, lambda: self.safe_click(b))
+
+    def safe_click(self, idx):
+        if not (self.input_locked or idx in self.matched_cards or idx in self.revealed or len(self.revealed) >= 2):
+            self.on_card_click(idx)
 
 if __name__ == "__main__":
     root = tk.Tk() #Crea la ventana principal
     game = Memorygame(root) #Crea una instancia del juego
     root.mainloop() #Inicia el bucle principal de la interfaz gráfica
-
