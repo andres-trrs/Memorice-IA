@@ -149,7 +149,7 @@ class Memorygame:
             self.moves += 1
             self.moves_label.config(text=f"Movimientos: {self.moves}")
             # Delay más corto para la IA, normal para manual
-            delay = 50 if self.ai_running else 500 #ERA 200 ANTES
+            delay = 25 if self.ai_running else 500 #DELAY DE VERIFICACION DEL MATCH (ERA 200 ANTES)
             after_id = self.master.after(delay, self.check_match)
             self.pending_after.append(after_id)
 
@@ -288,7 +288,7 @@ class Memorygame:
             return
         #si la UI está bloqueada, espera
         if self.input_locked:
-            self.ai_job = self.master.after(5, self.ai_tick) #ERA 50 ANTES
+            self.ai_job = self.master.after(5, self.ai_tick) #DELAY PARA REVISAR SI LA UI SIGUE BLOQUEADA (ERA 50 ANTES)
             return
         
         #Solo funciona con Auto (Memoria), las demás opciones detienen la IA
@@ -300,7 +300,7 @@ class Memorygame:
             return
         
         # Delay más corto para la IA
-        self.ai_job = self.master.after(100, self.ai_tick)
+        self.ai_job = self.master.after(5, self.ai_tick) #DELAY PARA EJECUTAR EL SIGUIENTE PASO DE LA IA (ERA 50 ANTES)
 
     def ai_step_memory(self):
         # paso 1: hay alguna pareja conocida?
@@ -333,12 +333,12 @@ class Memorygame:
                 return
             b = random.choice(pool2)
         #segundo click con delay más corto para IA
-        self.ai_job = self.master.after(50, lambda: self.safe_click(b))
+        self.ai_job = self.master.after(5, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA (ERA 50 ANTES)
 
     def ai_play_pair(self, a, b):
         self.safe_click(a)
         # Delay más corto entre clicks para la IA
-        self.ai_job = self.master.after(50, lambda: self.safe_click(b))
+        self.ai_job = self.master.after(5, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA (ERA 50 ANTES)
 
     def safe_click(self, idx):
         if not (self.input_locked or idx in self.matched_cards or idx in self.revealed or len(self.revealed) >= 2):
