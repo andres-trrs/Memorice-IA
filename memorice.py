@@ -81,7 +81,7 @@ class Memorygame:
 
         #Combobox para seleccionar IA
         self.ai_var = tk.StringVar(value=self.ai_mode)
-        self.ai_combo = ttk.Combobox(self.sidebar, textvariable=self.ai_var, state="readonly", values=["Manual", "Auto (Memoria)", "Auto (Greedy-BFS)", "Auto (Random)"], font = self.custom_font, width=18)
+        self.ai_combo = ttk.Combobox(self.sidebar, textvariable=self.ai_var, state="readonly", values=["Manual", "Auto (Memoria)", "Auto (Greedy-BFS)"], font = self.custom_font, width=18)
         self.ai_combo.pack(pady=(0, 10))
         self.ai_combo.bind("<<ComboboxSelected>>", self.on_ai_change)
 
@@ -149,7 +149,7 @@ class Memorygame:
             self.moves += 1
             self.moves_label.config(text=f"Movimientos: {self.moves}")
             # Delay más corto para la IA, normal para manual
-            delay = 25 if self.ai_running else 500 #DELAY DE VERIFICACION DEL MATCH (ERA 200 ANTES)
+            delay = 10 if self.ai_running else 500 #DELAY PARA VOLTEAR CARTAS ANTES ERA 200
             after_id = self.master.after(delay, self.check_match)
             self.pending_after.append(after_id)
 
@@ -210,11 +210,24 @@ class Memorygame:
         overlay.grab_set()
 
         if self.start_time is not None:
-            elapsed = int(time.time() - self.start_time)
-            mm, ss = divmod(elapsed, 60)
-            final_time = f"{mm:02d}:{ss:02d}"
+            elapsed_total = time.time() - self.start_time
+            total_milliseconds = int(elapsed_total * 1000)
+            
+            # Calcular minutos, segundos y milisegundos
+            minutes = total_milliseconds // 60000
+            seconds = (total_milliseconds % 60000) // 1000
+            milliseconds = total_milliseconds % 1000
+            
+            final_time = f"{minutes:02d}:{seconds:02d}:{milliseconds:03d}"
+            
+            # También mostrar en terminal para referencia
+            print(f"\n=== JUEGO TERMINADO ===")
+            print(f"Modo IA: {self.ai_mode}")
+            print(f"Movimientos: {self.moves}")
+            print(f"Tiempo: {final_time}")
+            print(f"========================\n")
         else:
-            final_time = "00:00"
+            final_time = "00:00:000"
 
         tk.Label(overlay, text="Juego Terminado!", font =("Helvetica", 20, "bold"), bg=self.colors['gameover_bg'], fg=self.colors['text']).pack(padx=20, pady=(20, 10))
         tk.Label(overlay, text=f"Movimientos: {self.moves}\nTiempo: {final_time}", font=self.custom_font, bg=self.colors['gameover_bg'], fg=self.colors['text']).pack(pady=5)
@@ -288,19 +301,21 @@ class Memorygame:
             return
         #si la UI está bloqueada, espera
         if self.input_locked:
-            self.ai_job = self.master.after(5, self.ai_tick) #DELAY PARA REVISAR SI LA UI SIGUE BLOQUEADA (ERA 50 ANTES)
+            self.ai_job = self.master.after(5, self.ai_tick) #DELAY PARA REVISAR SI LA UI ESTÁ LIBRE. ERA 50 ANTES
             return
         
-        #Solo funciona con Auto (Memoria), las demás opciones detienen la IA
+        #Ejecuta el paso de la IA según el modo seleccionado
         if self.ai_mode == "Auto (Memoria)":
             self.ai_step_memory()
+        elif self.ai_mode == "Auto (Greedy-BFS)":
+            self.ai_step_greedy_bfs()
         else:
             # Si se selecciona otra IA que no está implementada, detiene la IA
             self.stop_ai()
             return
         
         # Delay más corto para la IA
-        self.ai_job = self.master.after(5, self.ai_tick) #DELAY PARA EJECUTAR EL SIGUIENTE PASO DE LA IA (ERA 50 ANTES)
+        self.ai_job = self.master.after(1, self.ai_tick) #DELAY PARA EL SIGUIENTE PASO DE LA IA. ERA 50 ANTES
 
     def ai_step_memory(self):
         # paso 1: hay alguna pareja conocida?
@@ -333,16 +348,97 @@ class Memorygame:
                 return
             b = random.choice(pool2)
         #segundo click con delay más corto para IA
-        self.ai_job = self.master.after(5, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA (ERA 50 ANTES)
+        self.ai_job = self.master.after(1, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA. ERA 50 ANTES
 
+    def ai_step_greedy_bfs(self, alpha=0.25, sample_cap=12):
+        N = len(self.symbols)
+
+        #paso 1: si hay una pareja conocida, la juega
+        for sym, idxs in self.knowledge.items():
+            cand= [i for i in idxs if i not in self.matched_cards and i not in self.revealed]
+            if len(cand) >= 2:
+                a, b = cand[:2]
+                self.ai_play_pair(a, b)
+                return 
+
+        #paso 2: prioriza cartas no vistas, si se agotan, elige entre las no emparejadas
+        unseen = [i for i in range(N) if self.is_unseen(i)]
+        first_candidates = unseen if unseen else [i for i in range(N) if i not in self.matched_cards and i not in self.revealed]
+        if not first_candidates:
+            return
+        
+        if len(first_candidates) > sample_cap:
+            random.shuffle(first_candidates)
+            first_candidates = first_candidates[:sample_cap]
+
+        best = None
+        best_score = -1e9
+
+        for a in first_candidates:
+            #si se conoce la pareja de a, elige esa
+            partner = self.known_partner_for(a)
+            if partner is not None:
+                match_now = 1
+                info_gain = 0
+                score = match_now + alpha * info_gain
+                if score > best_score:
+                    best_score = score
+                    best = (a, partner)
+                continue
+
+            #si no se conoce la pareja de a, elige un b cualquiera
+            pool_b = [j for j in range(N) if j != a and j not in self.matched_cards and j not in self.revealed]
+            if pool_b:
+                candidates_b = pool_b if len(pool_b) <= sample_cap else random.sample(pool_b, sample_cap)
+
+                for b in candidates_b:
+                    #match_now 0 porque no se conoce la pareja
+                    match_now = 0
+                    #info_gain +1 si a o b no han sido vistas
+                    gain = 1 if self.is_unseen(a) else 0
+                    if self.is_unseen(b):
+                        gain += 1
+
+                    if self.known_partner_for(b) is not None:
+                        gain += 0.25
+
+                    score = match_now + alpha * gain
+                    if score > best_score:
+                        best_score = score
+                        best = (a,b)
+
+        if best is None:
+            self.ai_job = self.master.after_idle(self.ai_tick) 
+            return
+
+        a, b = best
+        self.safe_click(a)
+        self.master.after_idle(lambda: self.safe_click(b))
+
+    #voltea una pareja de cartas
     def ai_play_pair(self, a, b):
         self.safe_click(a)
         # Delay más corto entre clicks para la IA
-        self.ai_job = self.master.after(5, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA (ERA 50 ANTES)
+        self.ai_job = self.master.after(1, lambda: self.safe_click(b)) #DELAY PARA EL SEGUNDO CLICK DE LA IA. ERA 50 ANTES
 
     def safe_click(self, idx):
         if not (self.input_locked or idx in self.matched_cards or idx in self.revealed or len(self.revealed) >= 2):
             self.on_card_click(idx)
+
+    #indica si la carta i no ha sido vista nunca por la IA
+    def is_unseen(self, i):
+        if i in self.matched_cards or i in self.revealed:
+            return False
+        return all(i not in s for s in self.knowledge.values())
+
+    #devuelve el índice de una carta que haga pareja con la carta i, si se conoce
+    def known_partner_for(self, i):
+        sym = self.symbols[i]
+        idxs = self.knowledge.get(sym, set())
+        for j in idxs:
+            if j != i and j not in self.matched_cards and j not in self.revealed:
+                return j
+        return None
 
 if __name__ == "__main__":
     root = tk.Tk() #Crea la ventana principal
