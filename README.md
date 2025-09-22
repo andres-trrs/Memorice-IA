@@ -155,4 +155,5 @@ El algoritmo funciona como una persona con **memoria perfecta** pero que **explo
 
 **Es eficiente para recordar, pero no para explorar.**
 
-![image alt]([https://github.com/andres-trrs/Memorice-IA/blob/main/images/1.png?raw=true](https://github.com/andres-trrs/Memorice-IA/blob/db7a592f3cc3902e597afdbafb701b6f384b2b21/1.png))
+# 📊 Tiempos de Ejecución
+![image alt](https://github.com/andres-trrs/Memorice-IA/blob/db7a592f3cc3902e597afdbafb701b6f384b2b21/1.png)
