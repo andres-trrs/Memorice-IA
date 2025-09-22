@@ -319,7 +319,7 @@ class Memorygame:
 
     def ai_step_memory(self):
         # paso 1: hay alguna pareja conocida?
-        for sym, idxs in self.knowledge.items():
+        for sym, idxs in self.knowledge.items(): 
             cand = [i for i in idxs if i not in self.matched_cards and i not in self.revealed]
             if len (cand) >= 2:
                 a, b = cand[:2]
@@ -376,7 +376,7 @@ class Memorygame:
 
         for a in first_candidates:
             #si se conoce la pareja de a, elige esa
-            partner = self.known_partner_for(a)
+            partner = self.known_partner_for(a) 
             if partner is not None:
                 match_now = 1
                 info_gain = 0
